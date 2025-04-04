@@ -19,12 +19,51 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// Get all properties
+// Get all properties with filtering
 router.get('/', async (req, res) => {
   try {
-    const properties = await Property.find();
-    res.json(properties);
+    const { minPrice, maxPrice, location, sortBy } = req.query;
+    let query = { status: 'active' };
+
+    // Apply filters
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = Number(minPrice);
+      if (maxPrice) query.price.$lte = Number(maxPrice);
+    }
+
+    if (location) {
+      query.location = { $regex: location, $options: 'i' };
+    }
+
+    // Apply sorting
+    let sort = {};
+    switch (sortBy) {
+      case 'price_asc':
+        sort = { price: 1 };
+        break;
+      case 'price_desc':
+        sort = { price: -1 };
+        break;
+      case 'newest':
+      default:
+        sort = { createdAt: -1 };
+    }
+
+    const properties = await Property.find(query).sort(sort);
+    
+    // Process image URLs
+    const processedProperties = properties.map(property => {
+      const propertyObj = property.toObject();
+      if (propertyObj.image && !propertyObj.image.startsWith('http')) {
+        propertyObj.image = `${process.env.API_URL}/uploads/${propertyObj.image}`;
+      }
+      return propertyObj;
+    });
+
+    res.json(processedProperties);
   } catch (error) {
+    console.error('Error fetching properties:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -36,7 +75,13 @@ router.get('/:id', async (req, res) => {
     if (!property) {
       return res.status(404).json({ message: 'Property not found' });
     }
-    res.json(property);
+
+    const propertyObj = property.toObject();
+    if (propertyObj.image && !propertyObj.image.startsWith('http')) {
+      propertyObj.image = `${process.env.API_URL}/uploads/${propertyObj.image}`;
+    }
+
+    res.json(propertyObj);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
